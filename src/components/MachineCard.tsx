@@ -19,7 +19,7 @@ interface Props {
 
 export function MachineCard({ status, onResync, onCompleteCycle, onTogglePause, onAdjustOffset }: Props) {
   const { timing, urgency } = status;
-  const { machine, secondsRemaining, cycleProgress, measurementDue, nextPartNumber, runState } = timing;
+  const { machine, secondsRemaining, cycleProgress, measurementDue, nextBatchEndPart, runState, effectiveCycleSec } = timing;
   const colors = urgencyColors[urgency];
   const isPaused = runState.paused;
 
@@ -59,8 +59,8 @@ export function MachineCard({ status, onResync, onCompleteCycle, onTogglePause, 
 
       {/* Teil-Info */}
       <div style={{ color: '#aaa', fontSize: '0.9em', marginBottom: '16px' }}>
-        <div>{machine.partName}</div>
-        <div>Teil #{nextPartNumber} | Fertig: {runState.partsCompleted} Stk</div>
+        <div>{machine.partName} | {machine.partsPerTower} Stk/Turmseite</div>
+        <div>Nächster Batch: #{runState.partsCompleted + 1}-{nextBatchEndPart} | Fertig: {runState.partsCompleted} Stk</div>
       </div>
 
       {/* Countdown */}
@@ -104,7 +104,7 @@ export function MachineCard({ status, onResync, onCompleteCycle, onTogglePause, 
 
       {/* Zykluszeit */}
       <div style={{ color: '#666', fontSize: '0.75em', marginBottom: '12px', textAlign: 'center' }}>
-        Zykluszeit: {formatTime(machine.cycleTimeSec)} | Spannzeit: {formatTime(machine.setupTimeSec)}
+        {formatTime(machine.cycleTimeSec)}/Teil × {machine.partsPerTower} = {formatTime(effectiveCycleSec)} Turm | Spannzeit: {formatTime(machine.setupTimeSec)}
       </div>
 
       {/* ─── Steuerung ─── */}

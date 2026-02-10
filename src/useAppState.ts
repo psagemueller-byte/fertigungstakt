@@ -133,14 +133,16 @@ export function useAppState() {
     ));
   }, [runStates, setRunStates]);
 
-  /** Einzelne Maschine: "Zyklus soeben fertig" (Teil fertig, nächster Zyklus startet) */
+  /** Einzelne Maschine: "Turmseite fertig" (partsPerTower Teile fertig, nächster Zyklus startet) */
   const completeCycle = useCallback((machineId: string) => {
+    const machine = config.machines.find(m => m.id === machineId);
+    const batchSize = machine?.partsPerTower ?? 1;
     setRunStates(runStates.map(rs =>
       rs.machineId === machineId
-        ? { ...rs, cycleStartedAt: Date.now(), partsCompleted: rs.partsCompleted + 1, paused: false, pausedAt: 0 }
+        ? { ...rs, cycleStartedAt: Date.now(), partsCompleted: rs.partsCompleted + batchSize, paused: false, pausedAt: 0 }
         : rs
     ));
-  }, [runStates, setRunStates]);
+  }, [runStates, setRunStates, config.machines]);
 
   /** Maschine pausieren/fortsetzen */
   const togglePause = useCallback((machineId: string) => {

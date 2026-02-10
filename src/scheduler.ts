@@ -22,11 +22,20 @@ export function parseTimeToMs(timeStr: string): number {
   return now.getTime();
 }
 
+// ─── Hilfsfunktion: Effektive Zykluszeit einer Turmseite ─────────
+
+/** Bearbeitungszeit pro Teil × Teile pro Turmseite = Gesamtlaufzeit einer Seite */
+export function getEffectiveCycleSec(machine: Machine): number {
+  return machine.cycleTimeSec * machine.partsPerTower;
+}
+
 // ─── Maschinen-Timing auf Basis von RunState ──────────────────────
 
 export interface MachineTiming {
   machine: Machine;
   runState: MachineRunState;
+  /** Effektive Zykluszeit in Sek (pro Teil × Teile/Turm) */
+  effectiveCycleSec: number;
   /** Wann endet der aktuelle Zyklus (timestamp ms) */
   cycleEndsAt: number;
   /** Sekunden bis Zyklusende (negativ = überfällig) */
@@ -35,8 +44,8 @@ export interface MachineTiming {
   cycleProgress: number;
   /** Ist beim nächsten Wechsel eine Messung fällig? */
   measurementDue: boolean;
-  /** Nächste Teilenummer */
-  nextPartNumber: number;
+  /** Nächstes Teil-Batch (partsCompleted + partsPerTower) */
+  nextBatchEndPart: number;
 }
 
 export function getMachineTimings(
@@ -46,34 +55,45 @@ export function getMachineTimings(
 ): MachineTiming[] {
   return machines.map(machine => {
     const rs = runStates.find(r => r.machineId === machine.id);
+    const effectiveCycleSec = getEffectiveCycleSec(machine);
+
     if (!rs || rs.paused) {
       return {
         machine,
         runState: rs ?? { machineId: machine.id, cycleStartedAt: nowMs, partsCompleted: 0, paused: true, pausedAt: nowMs },
+        effectiveCycleSec,
         cycleEndsAt: Infinity,
         secondsRemaining: Infinity,
         cycleProgress: 0,
         measurementDue: false,
-        nextPartNumber: (rs?.partsCompleted ?? 0) + 1,
+        nextBatchEndPart: (rs?.partsCompleted ?? 0) + machine.partsPerTower,
       };
     }
 
-    const cycleDurationMs = machine.cycleTimeSec * 1000;
+    const cycleDurationMs = effectiveCycleSec * 1000;
     const cycleEndsAt = rs.cycleStartedAt + cycleDurationMs;
     const secondsRemaining = (cycleEndsAt - nowMs) / 1000;
     const elapsed = nowMs - rs.cycleStartedAt;
     const cycleProgress = Math.min(Math.max(elapsed / cycleDurationMs, 0), 1);
-    const nextPartNumber = rs.partsCompleted + 1;
-    const measurementDue = nextPartNumber % machine.measureEveryN === 0;
+
+    // Pro Zyklus werden partsPerTower Teile fertig
+    const nextBatchEndPart = rs.partsCompleted + machine.partsPerTower;
+
+    // Messung fällig, wenn im nächsten Batch ein Vielfaches von measureEveryN liegt
+    // z.B. partsCompleted=8, partsPerTower=4, measureEveryN=10 → Batch 9-12 enthält Teil 10 → messen!
+    const prevTotal = rs.partsCompleted;
+    const nextTotal = nextBatchEndPart;
+    const measurementDue = Math.floor(nextTotal / machine.measureEveryN) > Math.floor(prevTotal / machine.measureEveryN);
 
     return {
       machine,
       runState: rs,
+      effectiveCycleSec,
       cycleEndsAt,
       secondsRemaining,
       cycleProgress,
       measurementDue,
-      nextPartNumber,
+      nextBatchEndPart,
     };
   });
 }
@@ -181,7 +201,7 @@ export function planSetupWorker(
   const candidates: CandidateMachine[] = active.map(t => ({
     machine: t.machine,
     cycleEndsAt: t.cycleEndsAt,
-    partNumber: t.nextPartNumber,
+    partNumber: t.nextBatchEndPart,
     measurementDue: false, // Einspanner misst nicht, nur spannen
   }));
 
@@ -202,7 +222,7 @@ export function planMeasureWorker(
     machine: t.machine,
     // Messung nach Einspannen: Zyklusende + Spannzeit
     cycleEndsAt: t.cycleEndsAt + t.machine.setupTimeSec * 1000,
-    partNumber: t.nextPartNumber,
+    partNumber: t.nextBatchEndPart,
     measurementDue: true,
   }));
 
@@ -219,13 +239,15 @@ export function computeSchedule(
   const tasks: ScheduledTask[] = [];
 
   for (const machine of machines) {
-    const cycleDurationMs = machine.cycleTimeSec * 1000;
+    const effectiveCycleSec = getEffectiveCycleSec(machine);
+    const cycleDurationMs = effectiveCycleSec * 1000;
     let currentTime = shiftStartMs;
     let partCount = 0;
 
     while (currentTime + cycleDurationMs <= shiftEndMs) {
       const cycleEndTime = currentTime + cycleDurationMs;
-      partCount++;
+      const prevPartCount = partCount;
+      partCount += machine.partsPerTower;
 
       tasks.push({
         machineId: machine.id,
@@ -237,7 +259,9 @@ export function computeSchedule(
         partNumber: partCount,
       });
 
-      if (partCount % machine.measureEveryN === 0) {
+      // Messung fällig, wenn Batch ein Vielfaches von measureEveryN überschreitet
+      const measureNow = Math.floor(partCount / machine.measureEveryN) > Math.floor(prevPartCount / machine.measureEveryN);
+      if (measureNow) {
         tasks.push({
           machineId: machine.id,
           machineName: machine.name,
@@ -267,13 +291,14 @@ export function computeStaggeredStarts(
   machines: Machine[],
   baseTime: number,
 ): Record<string, number> {
-  // Sortiere nach Zykluszeit (kürzeste zuerst)
-  const sorted = [...machines].sort((a, b) => a.cycleTimeSec - b.cycleTimeSec);
+  // Sortiere nach effektiver Zykluszeit (kürzeste zuerst)
+  const sorted = [...machines].sort((a, b) => getEffectiveCycleSec(a) - getEffectiveCycleSec(b));
   const starts: Record<string, number> = {};
   let offset = 0;
 
   for (const machine of sorted) {
-    starts[machine.id] = baseTime - (machine.cycleTimeSec * 1000) + (offset * 1000);
+    const effectiveCycleSec = getEffectiveCycleSec(machine);
+    starts[machine.id] = baseTime - (effectiveCycleSec * 1000) + (offset * 1000);
     // Nächste Maschine versetzt um die Spannzeit der vorherigen
     offset += machine.setupTimeSec;
   }

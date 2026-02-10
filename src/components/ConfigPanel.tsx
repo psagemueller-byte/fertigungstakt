@@ -79,7 +79,7 @@ export function ConfigPanel({ config, onSave }: Props) {
               />
             </label>
             <label style={labelStyle}>
-              <span style={{ color: '#aaa', fontSize: '0.85em' }}>Zykluszeit (Sek)</span>
+              <span style={{ color: '#aaa', fontSize: '0.85em' }}>Bearbeitungszeit pro Teil (Sek)</span>
               <input
                 type="number"
                 value={machine.cycleTimeSec}
