@@ -113,10 +113,10 @@ export function MachineCard({ status, onResync, onCompleteCycle, onTogglePause, 
           {isPaused ? '\u25B6 Weiter' : '\u23F8 Pause'}
         </button>
         <button onClick={() => onResync(machine.id)} style={btnStyle('#3b82f6')} title="Zyklus jetzt neu gestartet">
-          \u21BB Sync
+          {'\u21BB'} Sync
         </button>
         <button onClick={() => onCompleteCycle(machine.id)} style={btnStyle('#10b981')} title="Teil fertig, nächster Zyklus">
-          \u2713 Fertig
+          {'\u2713'} Fertig
         </button>
         <button onClick={() => onAdjustOffset(machine.id, -30)} style={btnStyle('#6b7280')} title="30 Sek früher">
           -30s
