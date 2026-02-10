@@ -16,7 +16,12 @@ const RUNSTATE_KEY = 'fertigungstakt-runstates';
 function loadConfig(): AppConfig {
   try {
     const stored = localStorage.getItem(CONFIG_KEY);
-    if (stored) return JSON.parse(stored);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      // Migration: articles hinzufügen falls nicht vorhanden
+      if (!parsed.articles) parsed.articles = [];
+      return parsed;
+    }
   } catch { /* ignore */ }
   return defaultConfig;
 }

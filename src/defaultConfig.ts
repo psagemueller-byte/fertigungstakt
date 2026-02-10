@@ -61,4 +61,5 @@ export const defaultConfig: AppConfig = {
       { start: '11:30', end: '12:00' },
     ],
   },
+  articles: [],
 };

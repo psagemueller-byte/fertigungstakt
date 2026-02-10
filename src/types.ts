@@ -2,6 +2,8 @@
 export interface Machine {
   id: string;
   name: string;
+  /** Zugeordneter Artikel (Stammdaten-Referenz) */
+  articleId?: string;
   /** Aktuelles Teil / Werkstück */
   partName: string;
   /** Laufzeit pro Seite in Sekunden (Bearbeitungszeit während der Werker die andere Seite spannt) */
@@ -66,10 +68,27 @@ export interface ShiftConfig {
   breaks: { start: string; end: string }[];
 }
 
+/** Artikel-Stammdaten (Produktionsdaten pro Werkstück) */
+export interface Article {
+  id: string;
+  name: string;
+  /** Bearbeitungszeit pro Teil in Sekunden */
+  cycleTimeSec: number;
+  /** Spannzeit in Sekunden */
+  setupTimeSec: number;
+  /** Alle X Teile messen */
+  measureEveryN: number;
+  /** Messzeit in Sekunden */
+  measureTimeSec: number;
+  /** Teile pro Turmseite */
+  partsPerTower: number;
+}
+
 /** Gesamte Konfiguration */
 export interface AppConfig {
   machines: Machine[];
   shift: ShiftConfig;
+  articles: Article[];
 }
 
 /** Maschine aus Airtable (Stammdaten) */
