@@ -71,3 +71,13 @@ export interface AppConfig {
   machines: Machine[];
   shift: ShiftConfig;
 }
+
+/** Maschine aus Airtable (Stammdaten) */
+export interface AirtableMachine {
+  airtableId: string;
+  maschinenId: string;
+  gruppe: string;
+  hersteller: string;
+  maschine: string;
+  seriennummer: string;
+}
