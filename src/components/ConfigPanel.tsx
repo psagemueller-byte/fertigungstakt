@@ -8,11 +8,18 @@ interface Props {
   onSave: (config: AppConfig) => void;
 }
 
+type SortField = 'maschine' | 'maschinenId' | 'hersteller' | 'gruppe';
+type SortDir = 'asc' | 'desc';
+
 export function ConfigPanel({ config, onSave }: Props) {
   const [draft, setDraft] = useState<AppConfig>(JSON.parse(JSON.stringify(config)));
   const [airtableMachines, setAirtableMachines] = useState<AirtableMachine[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [sortField, setSortField] = useState<SortField>('maschine');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
+  const [filterGruppe, setFilterGruppe] = useState<string>('alle');
 
   // Airtable-Maschinen laden
   useEffect(() => {
@@ -54,6 +61,46 @@ export function ConfigPanel({ config, onSave }: Props) {
 
   function isAlreadyAdded(am: AirtableMachine): boolean {
     return draft.machines.some(m => m.id === am.airtableId);
+  }
+
+  // Gruppen für Filter extrahieren
+  const gruppen = Array.from(new Set(airtableMachines.map(m => m.gruppe).filter(Boolean))).sort();
+
+  // Filtern, suchen, sortieren
+  const filteredMachines = airtableMachines
+    .filter(am => {
+      if (filterGruppe !== 'alle' && am.gruppe !== filterGruppe) return false;
+      if (search.trim()) {
+        const q = search.toLowerCase();
+        return (
+          am.maschine.toLowerCase().includes(q) ||
+          am.maschinenId.toLowerCase().includes(q) ||
+          am.hersteller.toLowerCase().includes(q) ||
+          am.gruppe.toLowerCase().includes(q) ||
+          am.seriennummer.toLowerCase().includes(q)
+        );
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      const aVal = a[sortField].toLowerCase();
+      const bVal = b[sortField].toLowerCase();
+      const cmp = aVal.localeCompare(bVal, 'de');
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+
+  function toggleSort(field: SortField) {
+    if (sortField === field) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDir('asc');
+    }
+  }
+
+  function sortIndicator(field: SortField) {
+    if (sortField !== field) return ' \u2195';
+    return sortDir === 'asc' ? ' \u2191' : ' \u2193';
   }
 
   function handleSave() {
@@ -113,45 +160,115 @@ export function ConfigPanel({ config, onSave }: Props) {
           </div>
         )}
         {!loading && airtableMachines.length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '300px', overflowY: 'auto' }}>
-            {airtableMachines.map(am => {
-              const added = isAlreadyAdded(am);
-              return (
-                <div key={am.airtableId} style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '12px',
-                  padding: '8px 12px',
-                  background: added ? '#1a2a1a' : '#1a1f2e',
-                  border: `1px solid ${added ? '#2d6f2d' : '#2d3748'}`,
-                  borderRadius: '8px',
-                }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ color: '#fff', fontWeight: 'bold', fontSize: '0.9em' }}>
-                      {am.maschine}
-                      <span style={{ color: '#888', fontWeight: 'normal', marginLeft: '8px' }}>{am.maschinenId}</span>
+          <>
+            {/* Suche + Filter */}
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '10px', flexWrap: 'wrap' }}>
+              <input
+                type="text"
+                placeholder="Suchen..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                style={{ ...inputStyle, flex: '1 1 200px', minWidth: '150px' }}
+              />
+              <select
+                value={filterGruppe}
+                onChange={e => setFilterGruppe(e.target.value)}
+                style={{ ...inputStyle, flex: '0 0 auto', minWidth: '140px', cursor: 'pointer' }}
+              >
+                <option value="alle">Alle Gruppen</option>
+                {gruppen.map(g => (
+                  <option key={g} value={g}>{g}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Sortier-Header */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: '2fr 1.2fr 1fr auto',
+              gap: '8px',
+              padding: '6px 12px',
+              marginBottom: '4px',
+            }}>
+              {([
+                ['maschine', 'Maschine'],
+                ['hersteller', 'Hersteller'],
+                ['gruppe', 'Gruppe'],
+              ] as [SortField, string][]).map(([field, label]) => (
+                <button
+                  key={field}
+                  onClick={() => toggleSort(field)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: sortField === field ? '#60a5fa' : '#9ca3af',
+                    cursor: 'pointer',
+                    fontWeight: sortField === field ? 'bold' : 'normal',
+                    fontSize: '0.78em',
+                    textAlign: 'left',
+                    padding: 0,
+                  }}
+                >
+                  {label}{sortIndicator(field)}
+                </button>
+              ))}
+              <span />
+            </div>
+
+            {/* Ergebnis-Zähler */}
+            <div style={{ color: '#666', fontSize: '0.78em', marginBottom: '6px', paddingLeft: '12px' }}>
+              {filteredMachines.length} von {airtableMachines.length} Maschinen
+            </div>
+
+            {/* Liste */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '360px', overflowY: 'auto' }}>
+              {filteredMachines.map(am => {
+                const added = isAlreadyAdded(am);
+                return (
+                  <div key={am.airtableId} style={{
+                    display: 'grid',
+                    gridTemplateColumns: '2fr 1.2fr 1fr auto',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '8px 12px',
+                    background: added ? '#1a2a1a' : '#1a1f2e',
+                    border: `1px solid ${added ? '#2d6f2d' : '#2d3748'}`,
+                    borderRadius: '8px',
+                  }}>
+                    <div>
+                      <div style={{ color: '#fff', fontWeight: 'bold', fontSize: '0.9em' }}>
+                        {am.maschine}
+                      </div>
+                      <div style={{ color: '#888', fontSize: '0.75em' }}>
+                        {am.maschinenId} | SN: {am.seriennummer}
+                      </div>
                     </div>
-                    <div style={{ color: '#666', fontSize: '0.8em' }}>
-                      {am.hersteller} | {am.gruppe} | SN: {am.seriennummer}
-                    </div>
+                    <div style={{ color: '#aaa', fontSize: '0.85em' }}>{am.hersteller}</div>
+                    <div style={{ color: '#aaa', fontSize: '0.85em' }}>{am.gruppe}</div>
+                    <button
+                      onClick={() => addMachineFromAirtable(am)}
+                      disabled={added}
+                      style={{
+                        ...btnStyle(added ? '#374151' : '#2563eb'),
+                        opacity: added ? 0.5 : 1,
+                        cursor: added ? 'default' : 'pointer',
+                        padding: '6px 14px',
+                        fontSize: '0.8em',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {added ? 'Aktiv' : '+ Hinzufügen'}
+                    </button>
                   </div>
-                  <button
-                    onClick={() => addMachineFromAirtable(am)}
-                    disabled={added}
-                    style={{
-                      ...btnStyle(added ? '#374151' : '#2563eb'),
-                      opacity: added ? 0.5 : 1,
-                      cursor: added ? 'default' : 'pointer',
-                      padding: '6px 14px',
-                      fontSize: '0.8em',
-                    }}
-                  >
-                    {added ? 'Aktiv' : '+ Hinzufügen'}
-                  </button>
+                );
+              })}
+              {filteredMachines.length === 0 && (
+                <div style={{ color: '#666', fontSize: '0.9em', textAlign: 'center', padding: '20px' }}>
+                  Keine Treffer für diese Suche/Filter.
                 </div>
-              );
-            })}
-          </div>
+              )}
+            </div>
+          </>
         )}
         {!loading && !error && airtableMachines.length === 0 && (
           <div style={{ color: '#666', fontSize: '0.9em' }}>
