@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { MachineStatus } from '../useAppState';
+import { CycleRecord } from '../types';
 import { formatTime, formatTimestamp } from '../scheduler';
 
 const urgencyColors = {
@@ -9,19 +11,31 @@ const urgencyColors = {
   paused: { bg: '#1a1a2a', border: '#4a4a6f', text: '#aaaacc', progress: '#6b7280' },
 };
 
+interface MachineStats {
+  count: number;
+  avg: number;
+  min: number;
+  max: number;
+  avgDeviation: number;
+  trend: number;
+  records: CycleRecord[];
+}
+
 interface Props {
   status: MachineStatus;
+  stats: MachineStats | null;
   onResync: (id: string) => void;
   onCompleteCycle: (id: string) => void;
   onTogglePause: (id: string) => void;
   onAdjustOffset: (id: string, sec: number) => void;
 }
 
-export function MachineCard({ status, onResync, onCompleteCycle, onTogglePause, onAdjustOffset }: Props) {
+export function MachineCard({ status, stats, onResync, onCompleteCycle, onTogglePause, onAdjustOffset }: Props) {
   const { timing, urgency } = status;
   const { machine, secondsRemaining, cycleProgress, measurementDue, nextBatchEndPart, runState, effectiveCycleSec } = timing;
   const colors = urgencyColors[urgency];
   const isPaused = runState.paused;
+  const [showStats, setShowStats] = useState(false);
 
   return (
     <div style={{
@@ -109,27 +123,123 @@ export function MachineCard({ status, onResync, onCompleteCycle, onTogglePause, 
 
       {/* ─── Steuerung ─── */}
       <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-        <button onClick={() => onTogglePause(machine.id)} style={btnStyle(isPaused ? '#10b981' : '#f59e0b')} title={isPaused ? 'Fortsetzen' : 'Pausieren'}>
+        <button onClick={() => onTogglePause(machine.id)} style={ctrlBtn(isPaused ? '#10b981' : '#f59e0b')} title={isPaused ? 'Fortsetzen' : 'Pausieren'}>
           {isPaused ? '\u25B6 Weiter' : '\u23F8 Pause'}
         </button>
-        <button onClick={() => onResync(machine.id)} style={btnStyle('#3b82f6')} title="Zyklus jetzt neu gestartet">
+        <button onClick={() => onResync(machine.id)} style={ctrlBtn('#3b82f6')} title="Zyklus jetzt neu gestartet">
           {'\u21BB'} Sync
         </button>
-        <button onClick={() => onCompleteCycle(machine.id)} style={btnStyle('#10b981')} title="Teil fertig, nächster Zyklus">
+        <button onClick={() => onCompleteCycle(machine.id)} style={ctrlBtn('#10b981')} title="Teil fertig, nächster Zyklus">
           {'\u2713'} Fertig
         </button>
-        <button onClick={() => onAdjustOffset(machine.id, -30)} style={btnStyle('#6b7280')} title="30 Sek früher">
+        <button onClick={() => onAdjustOffset(machine.id, -30)} style={ctrlBtn('#6b7280')} title="30 Sek früher">
           -30s
         </button>
-        <button onClick={() => onAdjustOffset(machine.id, 30)} style={btnStyle('#6b7280')} title="30 Sek später">
+        <button onClick={() => onAdjustOffset(machine.id, 30)} style={ctrlBtn('#6b7280')} title="30 Sek später">
           +30s
         </button>
       </div>
+
+      {/* ─── Statistik Toggle ─── */}
+      {stats && (
+        <button
+          onClick={() => setShowStats(!showStats)}
+          style={{
+            background: 'none',
+            border: '1px solid #374151',
+            color: '#9ca3af',
+            borderRadius: '6px',
+            padding: '6px 0',
+            fontSize: '0.78em',
+            cursor: 'pointer',
+            width: '100%',
+            marginTop: '10px',
+            textAlign: 'center',
+          }}
+        >
+          {showStats ? '\u25B2 Statistik ausblenden' : `\u25BC Statistik (${stats.count} Zyklen)`}
+        </button>
+      )}
+
+      {/* ─── Statistik-Details ─── */}
+      {showStats && stats && (
+        <div style={{ marginTop: '10px', padding: '12px', background: '#0d1117', borderRadius: '8px', fontSize: '0.82em' }}>
+          {/* Übersicht */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '12px' }}>
+            <StatBox label="Zyklen" value={`${stats.count}`} color="#60a5fa" />
+            <StatBox
+              label={'\u00D8 Ist-Takt'}
+              value={formatTime(stats.avg)}
+              sub={`Soll: ${formatTime(effectiveCycleSec)}`}
+              color={Math.abs(stats.avgDeviation) <= 30 ? '#10b981' : stats.avgDeviation > 0 ? '#ef4444' : '#eab308'}
+            />
+            <StatBox label="Schnellster" value={formatTime(stats.min)} color="#10b981" />
+            <StatBox label="Langsamster" value={formatTime(stats.max)} color="#ef4444" />
+            <StatBox
+              label={'\u00D8 Abweichung'}
+              value={`${stats.avgDeviation > 0 ? '+' : ''}${formatTime(stats.avgDeviation)}`}
+              color={stats.avgDeviation <= 0 ? '#10b981' : stats.avgDeviation <= 60 ? '#eab308' : '#ef4444'}
+            />
+            {stats.count >= 3 && (
+              <StatBox
+                label="Trend"
+                value={stats.trend > 5 ? 'Langsamer' : stats.trend < -5 ? 'Schneller' : 'Stabil'}
+                color={stats.trend > 5 ? '#ef4444' : stats.trend < -5 ? '#10b981' : '#60a5fa'}
+              />
+            )}
+          </div>
+
+          {/* Letzte Zyklen */}
+          <div style={{ color: '#888', fontSize: '0.9em', marginBottom: '6px' }}>Letzte Zyklen:</div>
+          <div style={{ maxHeight: '150px', overflowY: 'auto' }}>
+            {stats.records.slice(-10).reverse().map((r, i) => (
+              <div key={i} style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                padding: '3px 6px',
+                borderRadius: '4px',
+                background: i % 2 === 0 ? '#111827' : 'transparent',
+                fontSize: '0.9em',
+              }}>
+                <span style={{ color: '#888' }}>
+                  {new Date(r.completedAt).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}
+                </span>
+                <span style={{ color: '#ccc', fontFamily: 'monospace' }}>
+                  {formatTime(r.actualSec)}
+                </span>
+                <span style={{
+                  color: r.deviationSec <= 0 ? '#10b981' : r.deviationSec <= 60 ? '#eab308' : '#ef4444',
+                  fontFamily: 'monospace',
+                  minWidth: '60px',
+                  textAlign: 'right',
+                }}>
+                  {r.deviationSec > 0 ? '+' : ''}{formatTime(r.deviationSec)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-function btnStyle(bg: string): React.CSSProperties {
+function StatBox({ label, value, sub, color }: { label: string; value: string; sub?: string; color: string }) {
+  return (
+    <div style={{
+      background: '#111827',
+      borderRadius: '6px',
+      padding: '8px',
+      textAlign: 'center',
+    }}>
+      <div style={{ color: '#888', fontSize: '0.82em', marginBottom: '2px' }}>{label}</div>
+      <div style={{ color, fontWeight: 'bold', fontFamily: 'monospace', fontSize: '1.1em' }}>{value}</div>
+      {sub && <div style={{ color: '#555', fontSize: '0.8em' }}>{sub}</div>}
+    </div>
+  );
+}
+
+function ctrlBtn(bg: string): React.CSSProperties {
   return {
     background: bg,
     color: '#fff',

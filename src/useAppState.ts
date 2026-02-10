@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { AppConfig, MachineRunState, PlannedStep } from './types';
+import { AppConfig, MachineRunState, PlannedStep, CycleRecord } from './types';
 import { defaultConfig } from './defaultConfig';
 import {
   parseTimeToMs,
@@ -12,6 +12,19 @@ import {
 
 const CONFIG_KEY = 'fertigungstakt-config';
 const RUNSTATE_KEY = 'fertigungstakt-runstates';
+const CYCLES_KEY = 'fertigungstakt-cycles';
+
+function loadCycleRecords(): CycleRecord[] {
+  try {
+    const stored = localStorage.getItem(CYCLES_KEY);
+    if (stored) return JSON.parse(stored);
+  } catch { /* ignore */ }
+  return [];
+}
+
+function saveCycleRecords(records: CycleRecord[]) {
+  localStorage.setItem(CYCLES_KEY, JSON.stringify(records));
+}
 
 function loadConfig(): AppConfig {
   try {
@@ -65,6 +78,12 @@ export function useAppState() {
   const [view, setView] = useState<'dashboard' | 'config' | 'timeline'>('dashboard');
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [soundEnabled, setSoundEnabled] = useState(true);
+  const [cycleRecords, setCycleRecordsRaw] = useState<CycleRecord[]>(loadCycleRecords);
+
+  const setCycleRecords = useCallback((records: CycleRecord[]) => {
+    setCycleRecordsRaw(records);
+    saveCycleRecords(records);
+  }, []);
 
   // RunStates: entweder geladen oder initial gestaffelt
   const [runStates, setRunStatesRaw] = useState<MachineRunState[]>(() => {
@@ -142,13 +161,34 @@ export function useAppState() {
   /** Einzelne Maschine: "Turmseite fertig" (partsPerTower Teile fertig, nächster Zyklus startet) */
   const completeCycle = useCallback((machineId: string) => {
     const machine = config.machines.find(m => m.id === machineId);
-    const batchSize = machine?.partsPerTower ?? 1;
-    setRunStates(runStates.map(rs =>
-      rs.machineId === machineId
-        ? { ...rs, cycleStartedAt: Date.now(), partsCompleted: rs.partsCompleted + batchSize, paused: false, pausedAt: 0 }
-        : rs
+    if (!machine) return;
+    const batchSize = machine.partsPerTower ?? 1;
+    const rs = runStates.find(r => r.machineId === machineId);
+    const nowMs = Date.now();
+
+    // Takt aufzeichnen
+    if (rs) {
+      const expectedSec = machine.cycleTimeSec * batchSize;
+      const actualSec = Math.round((nowMs - rs.cycleStartedAt) / 1000);
+      const record: CycleRecord = {
+        machineId,
+        machineName: machine.name,
+        partName: machine.partName,
+        expectedSec,
+        actualSec,
+        deviationSec: actualSec - expectedSec,
+        batchSize,
+        completedAt: nowMs,
+      };
+      setCycleRecords([...cycleRecords, record]);
+    }
+
+    setRunStates(runStates.map(r =>
+      r.machineId === machineId
+        ? { ...r, cycleStartedAt: nowMs, partsCompleted: r.partsCompleted + batchSize, paused: false, pausedAt: 0 }
+        : r
     ));
-  }, [runStates, setRunStates, config.machines]);
+  }, [runStates, setRunStates, config.machines, cycleRecords, setCycleRecords]);
 
   /** Maschine pausieren/fortsetzen */
   const togglePause = useCallback((machineId: string) => {
@@ -190,6 +230,28 @@ export function useAppState() {
     ));
   }, [runStates, setRunStates]);
 
+  /** Statistik für eine Maschine berechnen */
+  function getMachineStats(machineId: string) {
+    const records = cycleRecords.filter(r => r.machineId === machineId);
+    if (records.length === 0) return null;
+    const actuals = records.map(r => r.actualSec);
+    const deviations = records.map(r => r.deviationSec);
+    const avg = actuals.reduce((a, b) => a + b, 0) / actuals.length;
+    const min = Math.min(...actuals);
+    const max = Math.max(...actuals);
+    const avgDeviation = deviations.reduce((a, b) => a + b, 0) / deviations.length;
+    // Letzten 5 für Trend
+    const last5 = records.slice(-5);
+    const last5Avg = last5.reduce((a, b) => a + b.actualSec, 0) / last5.length;
+    const trend = last5.length >= 3 ? last5Avg - avg : 0; // positiv = wird langsamer
+    return { count: records.length, avg, min, max, avgDeviation, trend, records };
+  }
+
+  /** Alle Zyklusaufnahmen löschen */
+  const clearCycleRecords = useCallback(() => {
+    setCycleRecords([]);
+  }, [setCycleRecords]);
+
   return {
     config,
     setConfig,
@@ -214,5 +276,8 @@ export function useAppState() {
     startShift,
     adjustOffset,
     runStates,
+    cycleRecords,
+    getMachineStats,
+    clearCycleRecords,
   };
 }

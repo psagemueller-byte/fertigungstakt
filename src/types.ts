@@ -72,6 +72,23 @@ export interface ShiftConfig {
   breaks: { start: string; end: string }[];
 }
 
+/** Aufgezeichneter Zyklus (Taktaufnahme bei "Fertig"-Klick) */
+export interface CycleRecord {
+  machineId: string;
+  machineName: string;
+  partName: string;
+  /** Soll-Zykluszeit in Sekunden (effektiv, ganzer Turm) */
+  expectedSec: number;
+  /** Ist-Zykluszeit in Sekunden (tatsächlich gemessen) */
+  actualSec: number;
+  /** Abweichung in Sekunden (positiv = langsamer als Soll) */
+  deviationSec: number;
+  /** Teile in diesem Batch */
+  batchSize: number;
+  /** Timestamp wann Fertig gedrückt wurde */
+  completedAt: number;
+}
+
 /** Artikel-Stammdaten (Produktionsdaten pro Werkstück) */
 export interface Article {
   id: string;

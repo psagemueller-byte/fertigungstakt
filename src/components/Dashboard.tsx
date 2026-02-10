@@ -4,6 +4,18 @@ import { MachineCard } from './MachineCard';
 import { WorkerQueue } from './WorkerQueue';
 import { formatTime } from '../scheduler';
 
+import { CycleRecord } from '../types';
+
+interface MachineStats {
+  count: number;
+  avg: number;
+  min: number;
+  max: number;
+  avgDeviation: number;
+  trend: number;
+  records: CycleRecord[];
+}
+
 interface Props {
   machineStatuses: MachineStatus[];
   setupPlan: PlannedStep[];
@@ -17,12 +29,15 @@ interface Props {
   onTogglePause: (id: string) => void;
   onAdjustOffset: (id: string, sec: number) => void;
   onResyncAll: () => void;
+  getMachineStats: (machineId: string) => MachineStats | null;
+  onClearStats: () => void;
 }
 
 export function Dashboard({
   machineStatuses, setupPlan, measurePlan, totalIdleSec,
   now, shiftStartMs, shiftEndMs,
   onResync, onCompleteCycle, onTogglePause, onAdjustOffset, onResyncAll,
+  getMachineStats, onClearStats,
 }: Props) {
   const shiftProgress = Math.max(0, Math.min(1, (now - shiftStartMs) / (shiftEndMs - shiftStartMs)));
   const shiftRemainingMin = Math.max(0, Math.floor((shiftEndMs - now) / 60000));
@@ -52,6 +67,18 @@ export function Dashboard({
             }}>
               Stillstand: {formatTime(totalIdleSec)}
             </span>
+            <button onClick={onClearStats} style={{
+              background: '#374151',
+              color: '#9ca3af',
+              border: 'none',
+              borderRadius: '6px',
+              padding: '6px 14px',
+              cursor: 'pointer',
+              fontWeight: 'bold',
+              fontSize: '0.85em',
+            }}>
+              Statistik löschen
+            </button>
             <button onClick={onResyncAll} style={{
               background: '#2563eb',
               color: '#fff',
@@ -102,6 +129,7 @@ export function Dashboard({
           <MachineCard
             key={status.timing.machine.id}
             status={status}
+            stats={getMachineStats(status.timing.machine.id)}
             onResync={onResync}
             onCompleteCycle={onCompleteCycle}
             onTogglePause={onTogglePause}

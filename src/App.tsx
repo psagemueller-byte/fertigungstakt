@@ -101,6 +101,8 @@ export function App() {
             onTogglePause={state.togglePause}
             onAdjustOffset={state.adjustOffset}
             onResyncAll={state.resyncAll}
+            getMachineStats={state.getMachineStats}
+            onClearStats={state.clearCycleRecords}
           />
         )}
 
