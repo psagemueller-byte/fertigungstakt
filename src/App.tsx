@@ -38,12 +38,10 @@ export function App() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          {/* Uhrzeit */}
           <span style={{ color: '#9ca3af', fontFamily: 'monospace', fontSize: '1.1em' }}>
             {formatTimestamp(state.now)}
           </span>
 
-          {/* Sound Toggle */}
           <button
             onClick={() => state.setSoundEnabled(!state.soundEnabled)}
             style={{
@@ -60,7 +58,6 @@ export function App() {
             {state.soundEnabled ? '\u{1F50A}' : '\u{1F507}'}
           </button>
 
-          {/* Navigation */}
           <nav style={{ display: 'flex', gap: '4px' }}>
             {([
               { key: 'dashboard', label: 'Dashboard' },
@@ -93,10 +90,17 @@ export function App() {
         {state.view === 'dashboard' && (
           <Dashboard
             machineStatuses={state.machineStatuses}
-            sortedStatuses={state.sortedStatuses}
+            setupPlan={state.setupPlan}
+            measurePlan={state.measurePlan}
+            totalIdleSec={state.totalIdleSec}
             now={state.now}
             shiftStartMs={state.shiftStartMs}
             shiftEndMs={state.shiftEndMs}
+            onResync={state.resyncMachine}
+            onCompleteCycle={state.completeCycle}
+            onTogglePause={state.togglePause}
+            onAdjustOffset={state.adjustOffset}
+            onResyncAll={state.resyncAll}
           />
         )}
 
@@ -109,7 +113,6 @@ export function App() {
         )}
       </main>
 
-      {/* Pulse Animation */}
       <style>{`
         @keyframes pulse {
           0%, 100% { opacity: 1; }
