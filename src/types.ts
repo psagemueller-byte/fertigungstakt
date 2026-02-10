@@ -61,8 +61,12 @@ export interface ScheduledTask {
   partNumber: number;
 }
 
+/** Schicht-Typ */
+export type ShiftType = 'frueh' | 'spaet' | 'nacht';
+
 /** Schicht-Konfiguration */
 export interface ShiftConfig {
+  shiftType: ShiftType;
   startTime: string;
   endTime: string;
   breaks: { start: string; end: string }[];

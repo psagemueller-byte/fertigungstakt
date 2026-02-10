@@ -18,8 +18,9 @@ function loadConfig(): AppConfig {
     const stored = localStorage.getItem(CONFIG_KEY);
     if (stored) {
       const parsed = JSON.parse(stored);
-      // Migration: articles hinzufügen falls nicht vorhanden
+      // Migration: fehlende Felder ergänzen
       if (!parsed.articles) parsed.articles = [];
+      if (parsed.shift && !parsed.shift.shiftType) parsed.shift.shiftType = 'frueh';
       return parsed;
     }
   } catch { /* ignore */ }

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { AppConfig, Machine, Article, AirtableMachine } from '../types';
+import { AppConfig, Machine, Article, AirtableMachine, ShiftConfig, ShiftType } from '../types';
 import { defaultConfig } from '../defaultConfig';
 import { fetchAirtableMachines } from '../airtable';
 
@@ -11,6 +11,36 @@ interface Props {
 type SortField = 'maschine' | 'maschinenId' | 'hersteller' | 'gruppe';
 type SortDir = 'asc' | 'desc';
 type Tab = 'maschinen' | 'artikel' | 'schicht';
+
+const SHIFT_PRESETS: Record<ShiftType, { label: string; config: ShiftConfig }> = {
+  frueh: {
+    label: 'Frühschicht',
+    config: {
+      shiftType: 'frueh',
+      startTime: '06:00',
+      endTime: '14:00',
+      breaks: [{ start: '09:00', end: '09:15' }, { start: '11:30', end: '12:00' }],
+    },
+  },
+  spaet: {
+    label: 'Spätschicht',
+    config: {
+      shiftType: 'spaet',
+      startTime: '14:00',
+      endTime: '22:00',
+      breaks: [{ start: '17:00', end: '17:15' }, { start: '19:30', end: '20:00' }],
+    },
+  },
+  nacht: {
+    label: 'Nachtschicht',
+    config: {
+      shiftType: 'nacht',
+      startTime: '22:00',
+      endTime: '06:00',
+      breaks: [{ start: '01:00', end: '01:15' }, { start: '03:30', end: '04:00' }],
+    },
+  },
+};
 
 /** Felder, die vom Artikel kommen und überschrieben werden können */
 const ARTICLE_FIELDS: { key: keyof Article & keyof Machine; label: string; unit: string }[] = [
@@ -237,26 +267,80 @@ export function ConfigPanel({ config, onSave }: Props) {
       {/* ═══ Tab: Schichtzeiten ═══ */}
       {tab === 'schicht' && (
         <div style={{ background: '#111827', borderRadius: '12px', padding: '16px' }}>
-          <h4 style={{ color: '#fff', margin: '0 0 12px 0' }}>Schichtzeiten</h4>
-          <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
-            <label style={labelStyle}>
-              <span style={{ color: '#aaa' }}>Schichtbeginn</span>
-              <input
-                type="time"
-                value={draft.shift.startTime}
-                onChange={e => setDraft({ ...draft, shift: { ...draft.shift, startTime: e.target.value } })}
-                style={inputStyle}
-              />
-            </label>
-            <label style={labelStyle}>
-              <span style={{ color: '#aaa' }}>Schichtende</span>
-              <input
-                type="time"
-                value={draft.shift.endTime}
-                onChange={e => setDraft({ ...draft, shift: { ...draft.shift, endTime: e.target.value } })}
-                style={inputStyle}
-              />
-            </label>
+          <h4 style={{ color: '#fff', margin: '0 0 16px 0' }}>Schicht auswählen</h4>
+
+          {/* Schicht-Buttons */}
+          <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', flexWrap: 'wrap' }}>
+            {(Object.entries(SHIFT_PRESETS) as [ShiftType, typeof SHIFT_PRESETS[ShiftType]][]).map(([type, preset]) => {
+              const active = draft.shift.shiftType === type;
+              return (
+                <button
+                  key={type}
+                  onClick={() => setDraft({ ...draft, shift: preset.config })}
+                  style={{
+                    ...btnStyle(active ? '#2563eb' : '#374151'),
+                    padding: '12px 24px',
+                    fontSize: '1em',
+                    border: active ? '2px solid #60a5fa' : '2px solid transparent',
+                    flex: '1 1 0',
+                    minWidth: '140px',
+                  }}
+                >
+                  <div>{preset.label}</div>
+                  <div style={{ fontSize: '0.8em', fontWeight: 'normal', marginTop: '4px', color: active ? '#93c5fd' : '#9ca3af' }}>
+                    {preset.config.startTime} – {preset.config.endTime} Uhr
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Pausen */}
+          <h4 style={{ color: '#fff', margin: '0 0 10px 0', fontSize: '0.9em' }}>Pausen</h4>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {draft.shift.breaks.map((brk, i) => (
+              <div key={i} style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <input
+                  type="time"
+                  value={brk.start}
+                  onChange={e => {
+                    const newBreaks = [...draft.shift.breaks];
+                    newBreaks[i] = { ...newBreaks[i], start: e.target.value };
+                    setDraft({ ...draft, shift: { ...draft.shift, breaks: newBreaks } });
+                  }}
+                  style={{ ...inputStyle, width: '130px' }}
+                />
+                <span style={{ color: '#666' }}>–</span>
+                <input
+                  type="time"
+                  value={brk.end}
+                  onChange={e => {
+                    const newBreaks = [...draft.shift.breaks];
+                    newBreaks[i] = { ...newBreaks[i], end: e.target.value };
+                    setDraft({ ...draft, shift: { ...draft.shift, breaks: newBreaks } });
+                  }}
+                  style={{ ...inputStyle, width: '130px' }}
+                />
+                <button
+                  onClick={() => {
+                    const newBreaks = draft.shift.breaks.filter((_, idx) => idx !== i);
+                    setDraft({ ...draft, shift: { ...draft.shift, breaks: newBreaks } });
+                  }}
+                  style={{ ...btnStyle('#dc2626'), padding: '4px 10px', fontSize: '0.8em' }}
+                >
+                  {'\u2715'}
+                </button>
+              </div>
+            ))}
+            <button
+              onClick={() => {
+                const newBreaks = [...draft.shift.breaks, { start: '12:00', end: '12:15' }];
+                setDraft({ ...draft, shift: { ...draft.shift, breaks: newBreaks } });
+              }}
+              style={{ ...btnStyle('#374151'), padding: '6px 14px', fontSize: '0.82em', alignSelf: 'flex-start' }}
+            >
+              + Pause hinzufügen
+            </button>
           </div>
         </div>
       )}

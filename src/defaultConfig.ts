@@ -54,6 +54,7 @@ export const defaultConfig: AppConfig = {
     },
   ],
   shift: {
+    shiftType: 'frueh',
     startTime: '06:00',
     endTime: '14:00',
     breaks: [
