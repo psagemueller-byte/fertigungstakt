@@ -1,38 +1,56 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { AppConfig, Machine } from './types';
+import { AppConfig, MachineRunState, PlannedStep } from './types';
 import { defaultConfig } from './defaultConfig';
-import { getNextEvents, parseTimeToMs } from './scheduler';
+import {
+  parseTimeToMs,
+  getMachineTimings,
+  planSetupWorker,
+  planMeasureWorker,
+  computeStaggeredStarts,
+  MachineTiming,
+} from './scheduler';
 
-const STORAGE_KEY = 'fertigungstakt-config';
+const CONFIG_KEY = 'fertigungstakt-config';
+const RUNSTATE_KEY = 'fertigungstakt-runstates';
 
 function loadConfig(): AppConfig {
   try {
-    const stored = localStorage.getItem(STORAGE_KEY);
+    const stored = localStorage.getItem(CONFIG_KEY);
     if (stored) return JSON.parse(stored);
   } catch { /* ignore */ }
   return defaultConfig;
 }
 
 function saveConfig(config: AppConfig) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+  localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
+}
+
+function loadRunStates(): MachineRunState[] | null {
+  try {
+    const stored = localStorage.getItem(RUNSTATE_KEY);
+    if (stored) return JSON.parse(stored);
+  } catch { /* ignore */ }
+  return null;
+}
+
+function saveRunStates(states: MachineRunState[]) {
+  localStorage.setItem(RUNSTATE_KEY, JSON.stringify(states));
+}
+
+function createInitialRunStates(config: AppConfig, baseTime: number): MachineRunState[] {
+  const starts = computeStaggeredStarts(config.machines, baseTime);
+  return config.machines.map(m => ({
+    machineId: m.id,
+    cycleStartedAt: starts[m.id],
+    partsCompleted: 0,
+    paused: false,
+    pausedAt: 0,
+  }));
 }
 
 export interface MachineStatus {
-  machine: Machine;
-  /** Sekunden bis nächster Eingriff nötig */
-  secondsRemaining: number;
-  /** Nächste Aufgabe */
-  nextTaskType: 'setup' | 'measure';
-  /** Welches Teil (Nummer) */
-  nextPartNumber: number;
-  /** Teile fertig in dieser Schicht */
-  partsCompleted: number;
-  /** Fortschritt des aktuellen Zyklus (0-1) */
-  cycleProgress: number;
-  /** Nächster Fälligkeitszeitpunkt */
-  nextDueAt: number;
-  /** Dringlichkeit: 'ok' | 'soon' | 'now' | 'overdue' */
-  urgency: 'ok' | 'soon' | 'now' | 'overdue';
+  timing: MachineTiming;
+  urgency: 'ok' | 'soon' | 'now' | 'overdue' | 'paused';
 }
 
 export function useAppState() {
@@ -41,6 +59,18 @@ export function useAppState() {
   const [view, setView] = useState<'dashboard' | 'config' | 'timeline'>('dashboard');
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [soundEnabled, setSoundEnabled] = useState(true);
+
+  // RunStates: entweder geladen oder initial gestaffelt
+  const [runStates, setRunStatesRaw] = useState<MachineRunState[]>(() => {
+    const loaded = loadRunStates();
+    if (loaded && loaded.length === loadConfig().machines.length) return loaded;
+    return createInitialRunStates(loadConfig(), Date.now());
+  });
+
+  const setRunStates = useCallback((states: MachineRunState[]) => {
+    setRunStatesRaw(states);
+    saveRunStates(states);
+  }, []);
 
   const setConfig = useCallback((newConfig: AppConfig) => {
     setConfigState(newConfig);
@@ -56,44 +86,34 @@ export function useAppState() {
   const shiftStartMs = parseTimeToMs(config.shift.startTime);
   const shiftEndMs = parseTimeToMs(config.shift.endTime);
 
-  // Nächste Events berechnen
-  const nextEvents = getNextEvents(config.machines, shiftStartMs, now);
+  // Maschinen-Timings berechnen (auf Basis der RunStates)
+  const timings = getMachineTimings(config.machines, runStates, now);
 
-  // Maschinenstatus berechnen
-  const machineStatuses: MachineStatus[] = config.machines.map((machine) => {
-    const cycleDurationMs = machine.cycleTimeSec * 1000;
-    const elapsed = now - shiftStartMs;
-    const completedCycles = elapsed > 0 ? Math.floor(elapsed / cycleDurationMs) : 0;
-    const timeInCurrentCycle = elapsed > 0 ? elapsed % cycleDurationMs : 0;
-    const secondsRemaining = (cycleDurationMs - timeInCurrentCycle) / 1000;
-    const cycleProgress = timeInCurrentCycle / cycleDurationMs;
+  // Optimale Pläne berechnen
+  const setupPlan: PlannedStep[] = planSetupWorker(timings, now);
+  const measurePlan: PlannedStep[] = planMeasureWorker(timings, now);
 
-    const event = nextEvents.find(e => e.machineId === machine.id);
-    const nextPartNumber = event?.partNumber ?? completedCycles + 1;
-    const nextTaskType = event?.type ?? 'setup';
-    const nextDueAt = event?.nextDueAt ?? (shiftStartMs + (completedCycles + 1) * cycleDurationMs);
+  // Gesamtstillstandszeit
+  const totalIdleSec = setupPlan.reduce((sum, s) => sum + s.machineIdleSec, 0);
 
-    let urgency: MachineStatus['urgency'] = 'ok';
-    if (secondsRemaining <= 0) urgency = 'overdue';
-    else if (secondsRemaining <= 30) urgency = 'now';
-    else if (secondsRemaining <= 120) urgency = 'soon';
-
-    return {
-      machine,
-      secondsRemaining,
-      nextTaskType,
-      nextPartNumber,
-      partsCompleted: completedCycles,
-      cycleProgress: Math.min(cycleProgress, 1),
-      nextDueAt,
-      urgency,
-    };
+  // MachineStatuses für UI
+  const machineStatuses: MachineStatus[] = timings.map(timing => {
+    let urgency: MachineStatus['urgency'];
+    if (timing.runState.paused) {
+      urgency = 'paused';
+    } else if (timing.secondsRemaining <= 0) {
+      urgency = 'overdue';
+    } else if (timing.secondsRemaining <= 30) {
+      urgency = 'now';
+    } else if (timing.secondsRemaining <= 120) {
+      urgency = 'soon';
+    } else {
+      urgency = 'ok';
+    }
+    return { timing, urgency };
   });
 
-  // Sortiert nach Dringlichkeit
-  const sortedStatuses = [...machineStatuses].sort((a, b) => a.secondsRemaining - b.secondsRemaining);
-
-  // Sound-Alarm wenn eine Maschine "now" wird
+  // Sound-Alarm
   useEffect(() => {
     if (!soundEnabled) return;
     const hasUrgent = machineStatuses.some(s => s.urgency === 'now' || s.urgency === 'overdue');
@@ -102,6 +122,68 @@ export function useAppState() {
     }
   }, [machineStatuses.map(s => s.urgency).join(','), soundEnabled]);
 
+  // ─── Takt-Steuerung ─────────────────────────────────────────────
+
+  /** Einzelne Maschine: "Zyklus jetzt gestartet" */
+  const resyncMachine = useCallback((machineId: string) => {
+    setRunStates(runStates.map(rs =>
+      rs.machineId === machineId
+        ? { ...rs, cycleStartedAt: Date.now(), paused: false, pausedAt: 0 }
+        : rs
+    ));
+  }, [runStates, setRunStates]);
+
+  /** Einzelne Maschine: "Turmseite fertig" (partsPerTower Teile fertig, nächster Zyklus startet) */
+  const completeCycle = useCallback((machineId: string) => {
+    const machine = config.machines.find(m => m.id === machineId);
+    const batchSize = machine?.partsPerTower ?? 1;
+    setRunStates(runStates.map(rs =>
+      rs.machineId === machineId
+        ? { ...rs, cycleStartedAt: Date.now(), partsCompleted: rs.partsCompleted + batchSize, paused: false, pausedAt: 0 }
+        : rs
+    ));
+  }, [runStates, setRunStates, config.machines]);
+
+  /** Maschine pausieren/fortsetzen */
+  const togglePause = useCallback((machineId: string) => {
+    setRunStates(runStates.map(rs => {
+      if (rs.machineId !== machineId) return rs;
+      if (rs.paused) {
+        // Fortsetzen: Zyklusstart um die Pausendauer verschieben
+        const pauseDuration = Date.now() - rs.pausedAt;
+        return {
+          ...rs,
+          cycleStartedAt: rs.cycleStartedAt + pauseDuration,
+          paused: false,
+          pausedAt: 0,
+        };
+      } else {
+        return { ...rs, paused: true, pausedAt: Date.now() };
+      }
+    }));
+  }, [runStates, setRunStates]);
+
+  /** Alle Maschinen gestaffelt neu starten (optimaler Takt) */
+  const resyncAll = useCallback(() => {
+    const newStates = createInitialRunStates(config, Date.now());
+    setRunStates(newStates);
+  }, [config, setRunStates]);
+
+  /** Alle Maschinen gleichzeitig starten (für Schichtbeginn) */
+  const startShift = useCallback(() => {
+    const newStates = createInitialRunStates(config, Date.now());
+    setRunStates(newStates);
+  }, [config, setRunStates]);
+
+  /** Zeitversatz einer Maschine anpassen (+/- Sekunden) */
+  const adjustOffset = useCallback((machineId: string, offsetSec: number) => {
+    setRunStates(runStates.map(rs =>
+      rs.machineId === machineId
+        ? { ...rs, cycleStartedAt: rs.cycleStartedAt + offsetSec * 1000 }
+        : rs
+    ));
+  }, [runStates, setRunStates]);
+
   return {
     config,
     setConfig,
@@ -109,11 +191,22 @@ export function useAppState() {
     shiftStartMs,
     shiftEndMs,
     machineStatuses,
-    sortedStatuses,
+    timings,
+    setupPlan,
+    measurePlan,
+    totalIdleSec,
     view,
     setView,
     audioRef,
     soundEnabled,
     setSoundEnabled,
+    // Takt-Steuerung
+    resyncMachine,
+    completeCycle,
+    togglePause,
+    resyncAll,
+    startShift,
+    adjustOffset,
+    runStates,
   };
 }

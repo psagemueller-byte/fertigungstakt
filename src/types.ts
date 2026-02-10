@@ -16,42 +16,53 @@ export interface Machine {
   partsPerTower: number;
 }
 
-/** Zustand einer Maschine zur Laufzeit */
-export interface MachineState {
+/** Laufzeit-Zustand einer einzelnen Maschine (wird live getrackt) */
+export interface MachineRunState {
   machineId: string;
   /** Wann der aktuelle Zyklus gestartet hat (timestamp ms) */
   cycleStartedAt: number;
   /** Wie viele Teile seit Schichtbeginn fertig */
   partsCompleted: number;
-  /** Ist gerade eine Messung fällig beim nächsten Wechsel? */
-  measurementDue: boolean;
-  /** Status der Maschine */
-  status: 'running' | 'waiting_setup' | 'setup_in_progress' | 'waiting_measure' | 'measure_in_progress';
+  /** Ist die Maschine pausiert? (Störung, Werkzeugwechsel etc.) */
+  paused: boolean;
+  /** Wann wurde pausiert? (timestamp ms, 0 = nicht pausiert) */
+  pausedAt: number;
 }
 
-/** Ein geplanter Einsatz (Aufgabe) für einen Werker */
+/** Ein geplanter Schritt in der optimierten Reihenfolge */
+export interface PlannedStep {
+  machineId: string;
+  machineName: string;
+  partName: string;
+  partNumber: number;
+  type: 'setup' | 'measure';
+  /** Wann die Maschine fertig ist (Zyklus endet) */
+  machineDueAt: number;
+  /** Wann der Werker dort ankommt (nach vorherigen Aufgaben) */
+  workerArrivesAt: number;
+  /** Wie lange die Aufgabe dauert (Sek) */
+  durationSec: number;
+  /** Maschine wartet so viele Sekunden auf den Werker (Stillstand) */
+  machineIdleSec: number;
+  /** Werker wartet so viele Sekunden auf die Maschine */
+  workerWaitsSec: number;
+}
+
+/** Ein geplanter Einsatz (Aufgabe) für einen Werker - für Timeline */
 export interface ScheduledTask {
   machineId: string;
   machineName: string;
-  /** Wann der Werker dort sein muss (timestamp ms) */
   dueAt: number;
-  /** Art der Aufgabe */
   type: 'setup' | 'measure';
-  /** Dauer der Aufgabe in Sekunden */
   durationSec: number;
-  /** Teil-Name */
   partName: string;
-  /** Welches Teil (Nummer) */
   partNumber: number;
 }
 
 /** Schicht-Konfiguration */
 export interface ShiftConfig {
-  /** Schichtbeginn (HH:MM) */
   startTime: string;
-  /** Schichtende (HH:MM) */
   endTime: string;
-  /** Pausenzeiten */
   breaks: { start: string; end: string }[];
 }
 
@@ -59,4 +70,14 @@ export interface ShiftConfig {
 export interface AppConfig {
   machines: Machine[];
   shift: ShiftConfig;
+}
+
+/** Maschine aus Airtable (Stammdaten) */
+export interface AirtableMachine {
+  airtableId: string;
+  maschinenId: string;
+  gruppe: string;
+  hersteller: string;
+  maschine: string;
+  seriennummer: string;
 }
