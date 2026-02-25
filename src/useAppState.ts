@@ -56,7 +56,7 @@ export interface MachineStatus {
 export function useAppState() {
   const [config, setConfigState] = useState<AppConfig>(loadConfig);
   const [now, setNow] = useState(Date.now());
-  const [view, setView] = useState<'dashboard' | 'config' | 'timeline'>('dashboard');
+  const [view, setView] = useState<'dashboard' | 'config' | 'timeline' | 'floorplan'>('dashboard');
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [soundEnabled, setSoundEnabled] = useState(true);
 

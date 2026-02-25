@@ -2,6 +2,7 @@ import { useAppState } from './useAppState';
 import { Dashboard } from './components/Dashboard';
 import { ConfigPanel } from './components/ConfigPanel';
 import { Timeline } from './components/Timeline';
+import { FloorPlan } from './components/FloorPlan';
 import { formatTimestamp } from './scheduler';
 
 export function App() {
@@ -62,6 +63,7 @@ export function App() {
             {([
               { key: 'dashboard', label: 'Dashboard' },
               { key: 'timeline', label: 'Zeitleiste' },
+              { key: 'floorplan', label: 'Hallenplan' },
               { key: 'config', label: 'Konfiguration' },
             ] as const).map(item => (
               <button
@@ -108,6 +110,10 @@ export function App() {
           <Timeline config={state.config} now={state.now} />
         )}
 
+        {state.view === 'floorplan' && (
+          <FloorPlan machineStatuses={state.machineStatuses} />
+        )}
+
         {state.view === 'config' && (
           <ConfigPanel config={state.config} onSave={state.setConfig} />
         )}
@@ -117,6 +123,16 @@ export function App() {
         @keyframes pulse {
           0%, 100% { opacity: 1; }
           50% { opacity: 0.6; }
+        }
+        @keyframes greenShimmer {
+          0%   { box-shadow: 0 0 8px 2px rgba(16, 185, 129, 0.3); }
+          50%  { box-shadow: 0 0 20px 6px rgba(16, 185, 129, 0.6); }
+          100% { box-shadow: 0 0 8px 2px rgba(16, 185, 129, 0.3); }
+        }
+        @keyframes redPulse {
+          0%   { box-shadow: 0 0 8px 2px rgba(239, 68, 68, 0.3); opacity: 1; }
+          50%  { box-shadow: 0 0 24px 8px rgba(239, 68, 68, 0.7); opacity: 0.7; }
+          100% { box-shadow: 0 0 8px 2px rgba(239, 68, 68, 0.3); opacity: 1; }
         }
       `}</style>
     </div>
